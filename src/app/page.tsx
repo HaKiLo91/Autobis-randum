@@ -1,69 +1,222 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+
+const LIMIT = 1_000_000_000;
+
+// Số ngẫu nhiên an toàn (không bị lệch), dùng crypto của trình duyệt
+function randomInt(min, max) {
+  const range = max - min + 1;
+  const buf = new Uint32Array(1);
+  const cap = Math.floor(4294967296 / range) * range;
+  do {
+    crypto.getRandomValues(buf);
+  } while (buf[0] >= cap);
+  return min + (buf[0] % range);
+}
+
+function pickResult(min, max, used) {
+  const total = max - min + 1;
+  if (total <= 100000) {
+    const pool = [];
+    for (let i = min; i <= max; i++) if (!used.has(i)) pool.push(i);
+    return pool[randomInt(0, pool.length - 1)];
+  }
+  let n;
+  do {
+    n = randomInt(min, max);
+  } while (used.has(n));
+  return n;
+}
+
+function ballFontSize(text) {
+  const len = text.length;
+  if (len <= 3) return "5.5rem";
+  if (len <= 5) return "4.2rem";
+  if (len <= 8) return "3rem";
+  return "2.2rem";
+}
 
 export default function Home() {
+  const [from, setFrom] = useState("1");
+  const [to, setTo] = useState("100");
+  const [seconds, setSeconds] = useState(5);
+  const [noRepeat, setNoRepeat] = useState(true);
+  const [status, setStatus] = useState("idle"); // idle | running | done
+  const [shown, setShown] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [error, setError] = useState("");
+  const timer = useRef(null);
+
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  function start() {
+    const min = Number(from);
+    const max = Number(to);
+
+    if (
+      from.trim() === "" ||
+      to.trim() === "" ||
+      !Number.isInteger(min) ||
+      !Number.isInteger(max)
+    ) {
+      return setError("Hãy nhập số nguyên cho cả hai ô.");
+    }
+    if (Math.abs(min) > LIMIT || Math.abs(max) > LIMIT) {
+      return setError("Giới hạn tối đa là 1.000.000.000.");
+    }
+    if (min >= max) {
+      return setError("Số bắt đầu phải nhỏ hơn số kết thúc.");
+    }
+
+    const used = new Set(
+      noRepeat ? history.filter((n) => n >= min && n <= max) : [],
+    );
+    if (used.size >= max - min + 1) {
+      return setError(
+        "Đã quay hết các số trong khoảng này. Hãy xóa lịch sử hoặc đổi khoảng số.",
+      );
+    }
+
+    setError("");
+    setStatus("running");
+
+    const result = pickResult(min, max, used);
+    const startedAt = performance.now();
+    const total = seconds * 1000;
+
+    const tick = () => {
+      const t = Math.min((performance.now() - startedAt) / total, 1);
+      if (t >= 1) {
+        setShown(result);
+        setHistory((h) => [result, ...h]);
+        setStatus("done");
+        return;
+      }
+      setShown(randomInt(min, max));
+      // càng về cuối càng chậm lại
+      timer.current = setTimeout(tick, 40 + t * t * 380);
+    };
+    tick();
+  }
+
+  const running = status === "running";
+  const text = shown === null ? "?" : shown.toLocaleString("vi-VN");
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="page">
+      <header className="head">
+        <h1>Quay số may mắn</h1>
+        <p>Chọn khoảng số và thời gian quay, rồi bấm quay.</p>
+      </header>
+
+      <div className="layout">
+        <section className="stage" aria-label="Kết quả quay số">
+          <div className={`ball ${status}`}>
+            <div className="face">
+              <span className="num" style={{ fontSize: ballFontSize(text) }}>
+                {text}
+              </span>
+            </div>
+          </div>
+
+          <p className="sr" aria-live="polite">
+            {status === "done" ? `Kết quả: ${text}` : ""}
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+
+          <button className="go" onClick={start} disabled={running}>
+            {running
+              ? "Đang quay..."
+              : status === "done"
+                ? "Quay tiếp"
+                : "Quay số"}
+          </button>
+
+          {history.length > 0 && (
+            <div className="history">
+              <div className="history-top">
+                <h2>Đã quay ({history.length})</h2>
+                <button
+                  className="link"
+                  disabled={running}
+                  onClick={() => {
+                    setHistory([]);
+                    setShown(null);
+                    setStatus("idle");
+                  }}
+                >
+                  Xóa lịch sử
+                </button>
+              </div>
+              <ul>
+                {history.map((n, i) => (
+                  <li
+                    key={`${n}-${history.length - i}`}
+                    className={i === 0 ? "latest" : ""}
+                  >
+                    {n.toLocaleString("vi-VN")}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+
+        <section className="panel" aria-label="Cài đặt">
+          <div className="row">
+            <label>
+              Từ số
+              <input
+                type="number"
+                inputMode="numeric"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                disabled={running}
+              />
+            </label>
+            <label>
+              Đến số
+              <input
+                type="number"
+                inputMode="numeric"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                disabled={running}
+              />
+            </label>
+          </div>
+
+          <label className="range">
+            <span className="range-top">
+              Thời gian quay <strong>{seconds} giây</strong>
+            </span>
+            <input
+              type="range"
+              min="1"
+              max="30"
+              value={seconds}
+              onChange={(e) => setSeconds(Number(e.target.value))}
+              disabled={running}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+          </label>
+
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={noRepeat}
+              onChange={(e) => setNoRepeat(e.target.checked)}
+              disabled={running}
+            />
+            Không quay trùng số đã ra
+          </label>
+
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+        </section>
+      </div>
+    </main>
   );
 }
